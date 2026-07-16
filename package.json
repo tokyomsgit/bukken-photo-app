@@ -1,0 +1,9 @@
+{
+  "name": "bukken-photo-netlify",
+  "version": "1.0.0",
+  "private": true,
+  "description": "物件写真 自動加工アプリ (Netlify版)",
+  "devDependencies": {
+    "@netlify/edge-functions": "^2.0.0"
+  }
+}
