@@ -40,7 +40,7 @@
   .remove-btn { float:right; background:none; border:none; color:#c0392b; cursor:pointer; font-size:12px; }
   #processBtn { background:var(--main); color:#fff; border:none; padding:12px 24px; border-radius:8px; font-size:15px; cursor:pointer; }
   #processBtn:disabled { background:#aab6ae; cursor:not-allowed; }
-  #log { font-size:13px; color:var(--muted); margin-top:14px; white-space:pre-wrap; line-height:1.7; max-height:220px; overflow-y:auto; }
+  #log { font-size:13px; color:var(--muted); margin-top:14px; white-space:pre-wrap; line-height:1.7; max-height:220px; overflow-y:auto; word-break:break-all; }
   #warnBanner { display:none; background:#fff2d6; color:#8a6100; border:1px solid #e0c079; border-radius:8px; padding:10px 14px; font-size:13px; margin-top:14px; }
   .result-grid img { width:100%; border-radius:6px; border:1px solid var(--border); }
   .result-grid .thumb .meta { text-align:center; }
@@ -98,8 +98,8 @@
     <h2>設定</h2>
 
     <label>使用モデル</label>
-    <input type="text" id="cfgModel" value="gpt-image-1">
-    <div class="hint">OpenAI APIキーはサーバー側(Netlifyの環境変数 OPENAI_API_KEY)で管理しています。ブラウザには保存されません。</div>
+    <input type="text" id="cfgModel" value="gpt-image-2">
+    <div class="hint">OpenAI APIキーはサーバー側(Netlifyの環境変数 OPENAI_KEY_CUSTOM)で管理しています。ブラウザには保存されません。</div>
 
     <label>出力サイズ(px)</label>
     <div class="row2">
@@ -174,7 +174,7 @@ const DEFAULT_STAGING_PROMPT = `#目的
 ・ソファー`;
 
 const DEFAULT_CFG = {
-  model: "gpt-image-1",
+  model: "gpt-image-2",
   width: 640,
   height: 480,
   wmText: "東京マンション",
@@ -254,22 +254,6 @@ function log(msg) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-async function callAiEdit(file, prompt) {
-  const fd = new FormData();
-  fd.append('image', file, file.name);
-  fd.append('prompt', prompt);
-  fd.append('model', cfg.model);
-  const res = await fetch('/api/ai-edit', { method: 'POST', body: fd });
-  const contentType = res.headers.get('content-type') || '';
-  if (!contentType.includes('application/json')) {
-    // /api/ai-edit が呼ばれず、Netlifyの404ページ等が返ってきているケース
-    throw new Error(`AI加工エンドポイントに到達できませんでした(status ${res.status})。Edge Functionが未デプロイの可能性があります。`);
-  }
-  const data = await res.json();
-  if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
-  return data.b64_json;
-}
-
 function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -286,6 +270,52 @@ function fileToDataUrl(file) {
     r.onerror = reject;
     r.readAsDataURL(file);
   });
+}
+
+// AIに送る前に画像を十分小さく圧縮する
+// (Netlify Edge Functionの処理能力の都合上、送信画像がおよそ300〜600KBを超えると
+//  正常なエラーも出さずに失敗することが実測で確認できたため、安全のため小さく圧縮してから送る)
+async function shrinkForAi(file, maxDim = 1024, startQuality = 0.7, targetBytes = 250000) {
+  const dataUrl = await fileToDataUrl(file);
+  const img = await loadImage(dataUrl);
+  const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+  const w = Math.max(1, Math.round(img.width * scale));
+  const h = Math.max(1, Math.round(img.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, w, h);
+
+  let quality = startQuality;
+  let blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+  let attempts = 0;
+  while (blob.size > targetBytes && attempts < 4) {
+    quality = Math.max(0.35, quality - 0.15);
+    blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+    attempts++;
+  }
+  return blob;
+}
+
+async function callAiEdit(file, prompt) {
+  const shrunk = await shrinkForAi(file);
+  const fd = new FormData();
+  fd.append('image', shrunk, 'upload.jpg');
+  fd.append('prompt', prompt);
+  fd.append('model', cfg.model);
+  const res = await fetch('/api/ai-edit', { method: 'POST', body: fd });
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    // /api/ai-edit が呼ばれず、Netlifyの404ページ等が返ってきているケース
+    throw new Error(`AI加工エンドポイントに到達できませんでした(status ${res.status})。Edge Functionが未デプロイの可能性があります。`);
+  }
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    const debugStr = data.debug ? ` [debug: ${JSON.stringify(data.debug)}]` : '';
+    throw new Error((data.error || `HTTP ${res.status}`) + debugStr);
+  }
+  return data.b64_json;
 }
 
 function drawCover(ctx, img, dw, dh) {
@@ -438,7 +468,7 @@ function openSettings() {
 
 document.getElementById('saveSettings').addEventListener('click', () => {
   cfg = {
-    model: document.getElementById('cfgModel').value || 'gpt-image-1',
+    model: document.getElementById('cfgModel').value || 'gpt-image-2',
     width: parseInt(document.getElementById('cfgWidth').value, 10) || 640,
     height: parseInt(document.getElementById('cfgHeight').value, 10) || 480,
     wmText: document.getElementById('cfgWmText').value || '東京マンション',
