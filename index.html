@@ -6,7 +6,7 @@
 <title>物件写真 自動加工アプリ(Netlify版)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@300;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@700&display=swap">
 <style>
   :root {
     --main: #2f6f4f;
@@ -361,8 +361,7 @@ function ensureFontsReady() {
   if (!fontsReadyPromise) {
     fontsReadyPromise = Promise.race([
       Promise.all([
-        document.fonts.load('300 40px "M PLUS Rounded 1c"'),
-        document.fonts.load('500 40px "M PLUS Rounded 1c"'),
+        document.fonts.load('700 40px "Noto Serif JP"'),
         document.fonts.ready,
       ]),
       new Promise(resolve => setTimeout(resolve, 1500)), // フォント読み込みが遅い場合のフォールバック
@@ -374,11 +373,10 @@ function ensureFontsReady() {
 function drawWatermark(ctx, width, height) {
   const fontSize = Math.round(height * cfg.wmFont);
   ctx.save();
-  ctx.font = `300 ${fontSize}px "M PLUS Rounded 1c", "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "Yu Gothic", sans-serif`;
+  ctx.font = `700 ${fontSize}px "Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", serif`;
   ctx.fillStyle = hexToRgba(cfg.wmColor, cfg.wmOpacity);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  try { ctx.letterSpacing = `${Math.round(fontSize * 0.12)}px`; } catch {}
   ctx.shadowColor = 'rgba(0,0,0,0.18)';
   ctx.shadowBlur = fontSize * 0.1;
   const x = width * cfg.wmX;
@@ -392,7 +390,8 @@ async function finishImage(img, name) {
   canvas.width = cfg.width;
   canvas.height = cfg.height;
   const ctx = canvas.getContext('2d');
-  drawCover(ctx, img, cfg.width, cfg.height);
+  // 余白を切り取らず、元画像全体をそのまま指定サイズへリサイズする
+  ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, cfg.width, cfg.height);
   drawWatermark(ctx, cfg.width, cfg.height);
   return new Promise(resolve => canvas.toBlob(blob => resolve(blob), 'image/jpeg', 0.92));
 }
